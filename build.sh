@@ -25,6 +25,7 @@ fi
 # and copy the binary to python/cloudtik/core/thirdparty/redis/redis-server
 BUILD_DIR=${SCRIPT_DIR}/build
 THIRDPARTY_DIR=${BUILD_DIR}/thirdparty
+PATCHES_DIR=${SCRIPT_DIR}/patches
 mkdir -p ${THIRDPARTY_DIR}
 
 function compile_redis_server() {
@@ -49,13 +50,29 @@ function compile_redis_server() {
 function compile_ganglia_for_python() {
     # download ganglia-monitor-core
     rm -rf /tmp/monitor-core && git clone https://github.com/ganglia/monitor-core.git /tmp/monitor-core &&  cd /tmp/monitor-core && git checkout release/3.6
+    # Apply python3 support patch, refer to https://github.com/ganglia/monitor-core/pull/313
+    cp ${PATCHES_DIR}/ganglia/0001-support-python3.patch /tmp/monitor-core
+    git apply 0001-support-python3.patch
 
-    # install prerequisit before compiling
-    sudo -E apt-get -yq --no-install-suggests --no-install-recommends install \
-        libapr1-dev libaprutil1-dev libconfuse-dev libexpat1-dev libpcre3-dev libssl-dev librrd-dev libperl-dev libtool m4 gperf zlib1g-dev pkg-config libtool python2.7-dev automake make
-
-    # compile ganglia-monitor-core
-    ./bootstrap && ./configure --with-gmetad --enable-status --with-python=/usr/bin/python2.7 && make
+    source /etc/os-release
+    case $ID in
+    debain|ubuntu)
+      # install prerequisit before compiling
+      sudo -E apt-get -yq --no-install-suggests --no-install-recommends install \
+          libapr1-dev libaprutil1-dev libconfuse-dev libexpat1-dev libpcre3-dev libssl-dev librrd-dev libperl-dev libtool m4 gperf zlib1g-dev pkg-config libtool python2.7-dev automake make
+      # compile ganglia-monitor-core
+      ./bootstrap && ./configure --with-gmetad --enable-status --with-python=/usr/bin/python2.7 && make
+      ;;
+    centos|fedora|rhel|openEuler)
+      sudo -E yum install -y apr-devel libconfuse-devel expat-devel pcre-devel openssl-devel rrdtool-devel perl-devel libtool m4 gperf zlib-devel pkgconf libnsl2-devel libtirpc-devel rpcgen python3-devel automake make
+      export CFLAGS="-I/usr/include/tirpc"
+      export LDFLAGS="-ltirpc"
+      ./bootstrap && ./configure --with-gmetad --enable-status --with-python=/usr/bin/python3 && make
+      ;;
+    *)
+      exit 1
+      ;;
+    esac
 
     # copy binary to target folder
     GANGLIA_BIN_DIR=${THIRDPARTY_DIR}/ganglia
